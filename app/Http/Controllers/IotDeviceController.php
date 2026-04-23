@@ -14,7 +14,6 @@ class IotDeviceController extends Controller
     {
         $item = IotDevice::all();
         return response()->json($item, 200);
-
     }
 
     /**
@@ -23,8 +22,8 @@ class IotDeviceController extends Controller
     public function store(Request $request)
     {
         $dataValide = $request->validate([
-            'idMateriel' => 'required|string',
-            'typeCapteur' => 'required|string',
+            'idMateriel' => 'required|string|unique:iot_devices,idMateriel',
+            'typeCapteur' => 'required|string|in:Contact,Vibration',
             'emplacement' => 'required|string',
             'statutActuel' => 'required|boolean',
         ]);
@@ -48,10 +47,10 @@ class IotDeviceController extends Controller
     {
         $item = IotDevice::findOrFail($id);
         $donneesValides = $request->validate([
-            'idMateriel' => 'required|string|unique:iot_devices,idMateriel,' . $id,
-            'typeCapteur' => 'required|string|in:Contact,Vibration,Temperature',
-            'emplacement' => 'required|string',
-            'statutActuel' => 'boolean',
+            'idMateriel' => 'sometimes|required|string|unique:iot_devices,idMateriel,' . $id,
+            'typeCapteur' => 'sometimes|required|string|in:Contact,Vibration,Temperature',
+            'emplacement' => 'sometimes|required|string',
+            'statutActuel' => 'sometimes|required|boolean',
         ]);
         $item->update($donneesValides);
         return response()->json($item, 200);

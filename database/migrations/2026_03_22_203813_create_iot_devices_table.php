@@ -13,6 +13,7 @@ return new class extends Migration
     {
         Schema::create('iot_devices', function (Blueprint $table) {
             $table->uuid('id')->primary();
+            $table->foreignUuid('laundry_machine_id')->nullable()->constrained('laundry_machines')->nullOnDelete();
             $table->timestamps();
             $table->string('idMateriel')->unique();
             $table->string('emplacement');

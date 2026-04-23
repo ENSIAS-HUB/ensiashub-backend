@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
 
 class IotDevice extends Model
 {
@@ -15,6 +17,7 @@ class IotDevice extends Model
         'typeCapteur',
         'emplacement',
         'statutActuel',
+        'laundry_machine_id'
     ];
     
     protected function casts(): array
@@ -27,6 +30,11 @@ class IotDevice extends Model
     public function envoyerStatut(): bool
     {
         return true;
+    }
+
+    public function laundryMachine(): BelongsTo
+    {
+        return $this->belongsTo(LaundryMachine::class);
     }
 }
 

@@ -12,8 +12,13 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('device_events', function (Blueprint $table) {
-            $table->id();
+           $table->uuid('id')->primary();
+           $table->foreignUuid('iot_device_id')->constrained()->cascadeOnDelete();
+           $table->timestamp('timestamp');
+            $table->string('valeurBrute');
+            $table->string('statutDerive');
             $table->timestamps();
+
         });
     }
 

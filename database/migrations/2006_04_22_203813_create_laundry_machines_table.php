@@ -12,8 +12,11 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('laundry_machines', function (Blueprint $table) {
-            $table->id();
-            $table->timestamps();
+           $table->uuid('id')->primary();
+           $table->string('numeroMachine')->unique();
+           $table->enum('type', ['LaveLinge', 'SecheLinge']);
+           $table->enum('status', ['Libre', 'Occupee', 'HorsService']);
+           $table->timestamps();
         });
     }
 
