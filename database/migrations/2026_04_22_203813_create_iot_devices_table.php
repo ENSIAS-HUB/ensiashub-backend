@@ -12,8 +12,13 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('iot_devices', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
             $table->timestamps();
+            $table->string('idMateriel')->unique();
+            $table->string('emplacement');
+            $table->boolean('statutActuel')->default(false);
+            $table->enum('typeCapteur', ['Contact','Vibration']);
+
         });
     }
 
