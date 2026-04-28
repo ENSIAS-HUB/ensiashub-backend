@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use App\Models\MenuItem;
 
 class MenuItemController extends Controller
 {
@@ -11,7 +12,9 @@ class MenuItemController extends Controller
      */
     public function index()
     {
-        //
+        $items = MenuItem::all();
+        return response()->json($items);
+    
     }
 
     /**
@@ -19,7 +22,15 @@ class MenuItemController extends Controller
      */
     public function store(Request $request)
     {
-        //
+        $dataValide = $request->validate([
+            'nomPlat' => 'required|string',
+            'prix' => 'required|numeric',
+            'categorie' => 'required|string',
+            'estDisponible' => 'boolean',
+         ]);
+         
+         $item = MenuItem::create($dataValide);
+            return response()->json($item, 201);
     }
 
     /**
@@ -27,7 +38,8 @@ class MenuItemController extends Controller
      */
     public function show(string $id)
     {
-        //
+        $item = MenuItem::findOrFail($id);
+        return response()->json($item);
     }
 
     /**
@@ -35,7 +47,17 @@ class MenuItemController extends Controller
      */
     public function update(Request $request, string $id)
     {
-        //
+        $item = MenuItem::findOrFail($id);
+        
+        $dataValide = $request->validate([
+            'nomPlat' => 'sometimes|required|string',
+            'prix' => 'sometimes|required|numeric',
+            'categorie' => 'sometimes|required|string',
+            'estDisponible' => 'sometimes|required|boolean',
+        ]);
+
+        $item->update($dataValide);
+        return response()->json($item, 200);
     }
 
     /**
@@ -43,6 +65,8 @@ class MenuItemController extends Controller
      */
     public function destroy(string $id)
     {
-        //
+        $item = MenuItem::findOrFail($id);
+        $item->delete();
+        return response()->json(['message' => 'Élément du menu supprimé avec succès'], 200);
     }
 }

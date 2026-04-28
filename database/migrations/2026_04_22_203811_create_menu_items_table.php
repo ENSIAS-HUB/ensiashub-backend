@@ -12,7 +12,11 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('menu_items', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
+            $table->string('nomPlat');
+            $table->string('categorie');
+            $table->boolean('estDisponible')->default(true);
+            $table->float('prix');
             $table->timestamps();
         });
     }

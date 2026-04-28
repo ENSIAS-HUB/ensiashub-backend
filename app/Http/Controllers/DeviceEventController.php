@@ -10,7 +10,6 @@ class DeviceEventController extends Controller
 {
     public function index()
     {
-        // On peut charger la relation pour voir quel capteur a fait quoi
         $items = DeviceEvent::with('iotDevice')->get();
         return response()->json($items, 200);
     }

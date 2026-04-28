@@ -12,7 +12,12 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('pois', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
+            $table->string('nomLieu');
+            $table->text('description')->nullable();
+            $table->string('categorie');
+            $table->double('latitude');
+            $table->double('longitude');
             $table->timestamps();
         });
     }
