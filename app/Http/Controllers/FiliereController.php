@@ -19,6 +19,7 @@ class FiliereController extends Controller
         if ($request->has('search')) {
             $query->where('nom', 'like', '%' . $request->search . '%');
         }
+        // Cette ligne permet de filtrer les résultats (recherche) en fonction de ce que l'utilisateur tape dans une barre de recherche.
         
         $filieres = $query->orderBy('nom', 'asc')->paginate(15);
         
