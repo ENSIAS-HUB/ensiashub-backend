@@ -12,15 +12,26 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('users', function (Blueprint $table) {
-            $table->uuid('id')->primary(); // Utilisation de UUID comme clé primaire
+            $table->uuid('id')->primary();
+            
+            // L'identifiant unique : peut être l'email institutionnel ou le Gmail personnel (1A)
             $table->string('emailInstitutionnel')->unique();
+            
             $table->string('nom');
             $table->string('prenom');
-            $table->string('password'); // Nécessaire pour authentifier()
+            
+          
+            $table->string('password')->nullable();
+
+            $table->string('provider')->nullable();
+            $table->string('provider_id')->nullable();
+
             $table->string('photoProfil')->nullable();
             $table->text('bio')->nullable();
             $table->boolean('profileActif')->default(true);
-            $table->json('roles'); // Stockage des rôles (ex: ["student", "admin"])
+            
+            $table->json('roles');
+
             $table->rememberToken();
             $table->timestamps(); // Gère automatiquement createdAt et updatedAt
         });
@@ -34,7 +45,7 @@ return new class extends Migration
 
         Schema::create('sessions', function (Blueprint $table) {
             $table->string('id')->primary();
-            $table->foreignId('user_id')->nullable()->index();
+            $table->foreignUuid('user_id')->nullable()->index();
             $table->string('ip_address', 45)->nullable();
             $table->text('user_agent')->nullable();
             $table->longText('payload');
@@ -42,9 +53,7 @@ return new class extends Migration
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
+  
     public function down(): void
     {
         Schema::dropIfExists('sessions');

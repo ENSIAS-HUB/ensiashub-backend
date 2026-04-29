@@ -8,7 +8,6 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-
 class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable, HasUuids;
@@ -18,19 +17,21 @@ class User extends Authenticatable
         'nom',
         'prenom',
         'password',
+        'provider',    
+        'provider_id',   
         'photoProfil',
         'bio',
         'profileActif',
         'roles',
     ];
 
-    
+ 
     protected $hidden = [
         'password',
         'remember_token',
     ];
 
-    
+   
     protected function casts(): array
     {
         return [
@@ -41,8 +42,7 @@ class User extends Authenticatable
         ];
     }
 
-
-    
+   
     public function modifierProfile(array $data)
     {
         return $this->update($data);
