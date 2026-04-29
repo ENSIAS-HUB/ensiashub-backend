@@ -8,6 +8,7 @@ use App\Http\Controllers\DeviceEventController;
 use App\Http\Controllers\MenuItemController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\OrderLineController;
+use App\Http\Controllers\AuthController;
 
 
 Route::get('/user', function (Request $request) {
@@ -21,3 +22,5 @@ Route::apiResource('menu-items', MenuItemController::class);
 Route::apiResource('orders', OrderController::class);
 Route::apiResource('orders', OrderController::class);
 Route::apiResource('order-lines', OrderLineController::class);
+Route::get('/auth/redirect/{provider}', [AuthController::class, 'redirect']);
+Route::get('/auth/callback/{provider}', [AuthController::class, 'callback']);
