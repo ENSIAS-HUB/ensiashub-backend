@@ -10,7 +10,7 @@ class OrderLine extends Model
 {
     use HasUuids, HasFactory;
     protected $fillable = [
-        'quantité',
+        'quantite',
         'prixUnitaire',
         'totalLigne',
         'order_id',

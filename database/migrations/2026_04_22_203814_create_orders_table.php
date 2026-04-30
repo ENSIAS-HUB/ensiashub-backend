@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('orders', function (Blueprint $table) {
             $table->uuid('id')->primary();
             $table->string('numeroCommande')->unique();
-            $table->enum('statut', ['EnAttente', 'EnProparation', 'Prete', 'Recuperee', 'Annulee'])->default('EnAttente');
+            $table->enum('statut', ['EnAttente', 'EnPreparation', 'Prete', 'Recuperee', 'Annulee'])->default('EnAttente');
             $table->integer('tempsAttenteEstime')->nullable();
             $table->timestamps();
         });
