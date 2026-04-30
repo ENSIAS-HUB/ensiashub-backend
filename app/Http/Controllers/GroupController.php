@@ -40,6 +40,7 @@ class GroupController extends Controller
      */
     public function store(Request $request)
     {
+        // 1. On retire le createur_id du validateur (le frontend n'a pas à l'envoyer)
         $validator = Validator::make($request->all(), [
             'nom' => 'required|string|max:255',
             'categorie' => 'required|in:Filiere,Club,General',
@@ -53,7 +54,9 @@ class GroupController extends Controller
             ], 422);
         }
 
+        // 2. On injecte directement l'ID de l'utilisateur authentifié
         $group = Group::create([
+            'createur_id' => Auth::id(), // <-- L'ajout crucial est ici !
             'nom' => $request->nom,
             'categorie' => $request->categorie,
             'description' => $request->description,
