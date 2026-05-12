@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Reaction;
+use App\Models\Interaction;
 use App\Models\Publication;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -42,59 +43,41 @@ class ReactionController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'publication_id' => 'required|exists:publications,id',
-            'reaction' => 'required|string|in:like,love,laugh,sad,angry',
+            'reaction'       => 'nullable|string|in:like,love,laugh,sad,angry',
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'errors' => $validator->errors()
-            ], 422);
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
         }
 
-        // Vérifier que la publication est validée
-        $publication = Publication::find($request->publication_id);
-        if ($publication->statutValidation !== 'Valide') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Impossible de réagir à une publication non validée'
-            ], 400);
+        $reactionType = $request->input('reaction', 'like');
+
+        // Check for existing reaction via interactions table
+        $existingInteraction = Interaction::where('user_id', Auth::id())
+            ->where('publication_id', $request->publication_id)
+            ->where('type', 'reaction')
+            ->first();
+
+        if ($existingInteraction) {
+            // Toggle off — delete (cascades to reactions table)
+            $existingInteraction->delete();
+            return response()->json(['success' => true, 'message' => 'Réaction supprimée', 'reacted' => false]);
         }
 
-        // Vérifier si l'utilisateur a déjà réagi
-        $existingReaction = Reaction::where('user_id', Auth::id())
-                                    ->where('publication_id', $request->publication_id)
-                                    ->first();
-        
-        if ($existingReaction) {
-            // Mettre à jour la réaction existante
-            $existingReaction->update(['reaction' => $request->reaction]);
-            
-            return response()->json([
-                'success' => true,
-                'message' => 'Réaction mise à jour',
-                'data' => $existingReaction
-            ]);
-        }
-
-        // Créer d'abord l'interaction parente
-        $interaction = \App\Models\Interaction::create([
-            'user_id' => Auth::id(),
+        // Create parent interaction
+        $interaction = Interaction::create([
+            'user_id'        => Auth::id(),
             'publication_id' => $request->publication_id,
-            'type' => 'reaction',
+            'type'           => 'reaction',
         ]);
 
-        // Puis créer la réaction liée
-        $reaction = Reaction::create([
-            'id' => $interaction->id,
-            'reaction' => $request->reaction,
+        // Create child reaction
+        Reaction::create([
+            'id'       => $interaction->id,
+            'reaction' => $reactionType,
         ]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Réaction ajoutée',
-            'data' => $reaction->load('user')
-        ], 201);
+        return response()->json(['success' => true, 'message' => 'Réaction ajoutée', 'reacted' => true], 201);
     }
 
     /**

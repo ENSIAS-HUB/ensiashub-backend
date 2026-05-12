@@ -63,19 +63,19 @@ class Publication extends Model
     }
 
     /**
-     * Relation avec les commentaires
+     * Relation avec les commentaires (via interactions)
      */
     public function commentaires(): HasMany
     {
-        return $this->hasMany(Commentaire::class, 'publication_id');
+        return $this->hasMany(Interaction::class, 'publication_id')->where('type', 'commentaire');
     }
 
     /**
-     * Relation avec les réactions
+     * Relation avec les réactions (via interactions)
      */
     public function reactions(): HasMany
     {
-        return $this->hasMany(Reaction::class, 'publication_id');
+        return $this->hasMany(Interaction::class, 'publication_id')->where('type', 'reaction');
     }
 
     /**

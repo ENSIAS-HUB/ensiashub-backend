@@ -18,6 +18,7 @@ class Module extends Model
         'nom',
         'semestre',
         'annee',
+        'filiere_specifique',
     ];
 
     protected $casts = [

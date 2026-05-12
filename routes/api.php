@@ -2,6 +2,12 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+
+// Health check pour Render (keep-alive / zero-downtime checks)
+Route::get('/health', fn () => response()->json([
+    'status'    => 'ok',
+    'timestamp' => now()->toISOString(),
+]));
 use App\Http\Controllers\IotDeviceController;
 use App\Http\Controllers\LaundryMachineController;
 use App\Http\Controllers\DeviceEventController;
@@ -20,6 +26,9 @@ use App\Http\Controllers\FiliereController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\ModuleController;
 use App\Http\Controllers\DocumentReviewController;
+use App\Http\Controllers\DriveSyncController;
+use App\Http\Controllers\ProfileController;
+use App\Http\Resources\UserResource;
 
 /*
 |--------------------------------------------------------------------------
@@ -44,9 +53,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', function (Request $request) {
         return response()->json([
             'success' => true,
-            'data' => $request->user()
+            'data' => new UserResource($request->user())
         ]);
     });
+
+    Route::patch('/me/complete-profile', [ProfileController::class, 'completeProfile']);
+    Route::patch('/me', [ProfileController::class, 'update']);
 
     Route::post('/logout', function (Request $request) {
         $request->user()->currentAccessToken()->delete();
@@ -57,9 +69,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('iot-devices', IotDeviceController::class);
     Route::apiResource('laundry-machine', LaundryMachineController::class);
     Route::apiResource('device-events', DeviceEventController::class);
+
+    // Menu items — categories must come before the apiResource to avoid route collision
+    Route::get('menu-items/categories', [MenuItemController::class, 'categories']);
     Route::apiResource('menu-items', MenuItemController::class);
+
+    // Orders — cancel must come before apiResource
+    Route::patch('orders/{id}/cancel', [OrderController::class, 'cancel']);
     Route::apiResource('orders', OrderController::class);
-    // Route::apiResource('orders', OrderController::class); // <-- Doublon supprimé ici
+
     Route::apiResource('order-lines', OrderLineController::class);
 
     // ==================== ROUTES POUR GROUPES ====================
@@ -94,6 +112,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('reactions', ReactionController::class);
 
     // ==================== ROUTES POUR LE DRIVE ====================
+    Route::prefix('drive/sync')->group(function () {
+        Route::post('/filiere',  [DriveSyncController::class, 'syncFiliere']);
+        Route::post('/module',   [DriveSyncController::class, 'syncModule']);
+        Route::post('/document', [DriveSyncController::class, 'syncDocument']);
+    });
+
     Route::apiResource('filieres', FiliereController::class);
     Route::apiResource('modules', ModuleController::class);
     Route::apiResource('documents', DocumentController::class);

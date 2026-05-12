@@ -23,6 +23,8 @@ class User extends Authenticatable
         'bio',
         'profileActif',
         'roles',
+        'filiere',
+        'annee',
     ];
 
  
@@ -42,9 +44,40 @@ class User extends Authenticatable
         ];
     }
 
-   
     public function modifierProfile(array $data)
     {
         return $this->update($data);
+    }
+
+    // ── Helpers de rôles ───────────────────────────────────────────────
+
+    /**
+     * Vérifie si l'utilisateur possède un rôle donné.
+     * Exemple : $user->hasRole('superAdmin')
+     */
+    public function hasRole(string $role): bool
+    {
+        return is_array($this->roles) && in_array($role, $this->roles);
+    }
+
+    /** superAdmin OU admin */
+    public function isAdminOrAbove(): bool
+    {
+        return $this->hasRole('superAdmin') || $this->hasRole('admin');
+    }
+
+    /** superAdmin uniquement */
+    public function isSuperAdmin(): bool
+    {
+        return $this->hasRole('superAdmin');
+    }
+
+    /**
+     * Peut modérer n'importe quel groupe (sans être Moderateur dans la table pivot).
+     * Utilisé pour les admins/superAdmins.
+     */
+    public function canManageAllGroups(): bool
+    {
+        return $this->isAdminOrAbove();
     }
 }

@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Group;
 use App\Models\User;
+use App\Http\Resources\GroupResource;
+use App\Http\Resources\UserResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
@@ -16,22 +18,29 @@ class GroupController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Group::query();
-        
-        if ($request->has('categorie')) {
-            $query->where('categorie', $request->categorie);
-        }
-        
-        if ($request->has('search')) {
-            $query->where('nom', 'like', '%' . $request->search . '%');
-        }
-        
-        $groups = $query->withCount('membres')->paginate(15);
-        
-        return response()->json([
-            'success' => true,
-            'data' => $groups
-        ]);
+        $user    = Auth::user();
+        $userId  = $user->id;
+
+        $groups = Group::query()
+            ->withCount('membres')
+            // Eager-load only the current user's membership row (avoids N+1)
+            ->with(['membres' => fn ($q) => $q->where('adhesion_groups.user_id', $userId)])
+            ->when($request->has('categorie'), fn ($q) => $q->where('categorie', $request->categorie))
+            ->when($request->has('search'),    fn ($q) => $q->where('nom', 'like', '%' . $request->search . '%'))
+            // Admin & superAdmin voient tout, les autres voient leur filière + clubs + général
+            ->when(!$user->isAdminOrAbove(), function ($q) use ($user) {
+                $q->where(function ($sub) use ($user) {
+                    $sub->where('categorie', '!=', 'Filiere');
+                    if ($user->filiere && $user->annee) {
+                        $sub->orWhere('nom', $user->filiere . ' ' . $user->annee);
+                    }
+                });
+            })
+            ->paginate(100);
+
+        return response()->json(
+            $groups->through(fn ($g) => (new GroupResource($g))->toArray($request))
+        );
     }
 
     /**
@@ -83,8 +92,10 @@ class GroupController extends Controller
      */
     public function show(string $id)
     {
-        $group = Group::with(['membres', 'publications.user'])->find($id);
-        
+        $group = Group::withCount('membres')
+            ->with('membres') // load all members so GroupResource can find the moderator
+            ->find($id);
+
         if (!$group) {
             return response()->json([
                 'success' => false,
@@ -94,7 +105,7 @@ class GroupController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $group
+            'data'    => (new GroupResource($group))->toArray(request()),
         ]);
     }
 
@@ -114,16 +125,17 @@ class GroupController extends Controller
         }
 
         // Vérifier si l'utilisateur est modérateur
-        if (!$group->estModerateur(Auth::user())) {
+        $user = Auth::user();
+        if (!$user->isAdminOrAbove() && !$group->estModerateur($user)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Non autorisé'
+                'message' => 'Non autorisé — vous devez être admin ou modérateur de ce groupe.',
             ], 403);
         }
 
         $validator = Validator::make($request->all(), [
-            'nom' => 'sometimes|string|max:255',
-            'categorie' => 'sometimes|in:Filiere,Club,General',
+            'nom'         => 'sometimes|string|max:255',
+            'categorie'   => 'sometimes|in:Filiere,Club,General',
             'description' => 'sometimes|string',
         ]);
 
@@ -134,7 +146,7 @@ class GroupController extends Controller
             ], 422);
         }
 
-        $group->update($request->all());
+        $group->update($request->only(['nom', 'categorie', 'description']));
 
         return response()->json([
             'success' => true,
@@ -158,10 +170,11 @@ class GroupController extends Controller
             ], 404);
         }
 
-        if (!$group->estModerateur(Auth::user())) {
+        $user = Auth::user();
+        if (!$user->isAdminOrAbove() && !$group->estModerateur($user)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Non autorisé'
+                'message' => 'Non autorisé — réservé aux admins et modérateurs.',
             ], 403);
         }
 
@@ -174,46 +187,60 @@ class GroupController extends Controller
     }
 
     /**
-     * Ajouter un membre au groupe
-     * POST /api/groups/{id}/add-member
+     * Rejoindre un groupe (utilisateur connecté)
+     * POST /api/groups/{id}/ajouter-membre
      */
     public function ajouterMembre(Request $request, string $id)
     {
         $group = Group::find($id);
-        
+
         if (!$group) {
             return response()->json([
                 'success' => false,
-                'message' => 'Groupe non trouvé'
+                'message' => 'Groupe non trouvé',
             ], 404);
         }
 
-        $validator = Validator::make($request->all(), [
-            'user_id' => 'required|exists:users,id',
-        ]);
-
-        if ($validator->fails()) {
+        // Les filières ne peuvent pas être rejointes manuellement
+        if ($group->categorie === 'Filiere') {
             return response()->json([
                 'success' => false,
-                'errors' => $validator->errors()
-            ], 422);
+                'message' => 'L\'adhésion aux groupes de filière est automatique.',
+            ], 403);
         }
 
-        $user = User::find($request->user_id);
-        
-        // Vérifier si déjà membre
-        if ($group->estMembre($user)) {
+        $userId = Auth::id();
+
+        // Vérifier si déjà membre / demande existante
+        $existant = \App\Models\AdhesionGroup::where('user_id', $userId)
+            ->where('group_id', $id)
+            ->first();
+
+        if ($existant) {
             return response()->json([
                 'success' => false,
-                'message' => 'Cet utilisateur est déjà membre'
+                'message' => 'Vous avez déjà une demande ou adhésion pour ce groupe.',
             ], 400);
         }
 
-        $group->ajouterMembre($user);
+        // Club → EnAttente, Général → Approuve
+        $statut = $group->categorie === 'Club' ? 'EnAttente' : 'Approuve';
+
+        \App\Models\AdhesionGroup::create([
+            'user_id'  => $userId,
+            'group_id' => $id,
+            'statut'   => $statut,
+            'role'     => 'Membre',
+            'joinedAt' => now(),
+        ]);
+
+        $message = $statut === 'EnAttente'
+            ? 'Demande d\'adhésion envoyée, en attente d\'approbation.'
+            : 'Vous avez rejoint le groupe.';
 
         return response()->json([
             'success' => true,
-            'message' => 'Demande d\'adhésion envoyée'
+            'message' => $message,
         ]);
     }
 
@@ -232,10 +259,12 @@ class GroupController extends Controller
             ], 404);
         }
 
-        if (!$group->estModerateur(Auth::user())) {
+        $auth = Auth::user();
+        // Autorisé si : superAdmin / admin, OU modérateur du groupe (délégué / président club)
+        if (!$auth->isAdminOrAbove() && !$group->estModerateur($auth)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Non autorisé'
+                'message' => 'Non autorisé — réservé aux admins et modérateurs du groupe.',
             ], 403);
         }
 
@@ -250,7 +279,7 @@ class GroupController extends Controller
             ], 422);
         }
 
-        $user = User::find($request->user_id);
+        $user   = User::find($request->user_id);
         $result = $group->validerMembre($user);
 
         return response()->json($result);
@@ -300,7 +329,7 @@ class GroupController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $membres
+            'data'    => UserResource::collection($membres)->toArray(request()),
         ]);
     }
 
@@ -330,7 +359,7 @@ class GroupController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $demandes
+            'data'    => UserResource::collection($demandes)->toArray(request()),
         ]);
     }
 }

@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: ensiashub-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
+      - key: LOG_LEVEL
+        value: error
+      # Les variables secrètes suivantes sont à renseigner manuellement
+      # dans Render Dashboard → Environment :
+      #   APP_KEY, DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME, DB_PASSWORD,
+      #   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI,
+      #   FRONTEND_URL, SANCTUM_STATEFUL_DOMAINS

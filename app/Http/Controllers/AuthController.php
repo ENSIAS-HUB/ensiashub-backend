@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AdhesionGroup;
+use App\Models\Group;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Laravel\Socialite\Facades\Socialite;
@@ -24,10 +26,10 @@ class AuthController extends Controller
         try {
             // stateless() ici aussi
             $socialUser = Socialite::driver($provider)->stateless()->user();
-            $email = $socialUser->getEmail();
+            $email = strtolower(trim($socialUser->getEmail()));
 
-            // LA LISTE BLANCHE
-            $localUser = User::where('emailInstitutionnel', $email)->first();
+            // LA LISTE BLANCHE (comparaison insensible à la casse)
+            $localUser = User::whereRaw('LOWER("emailInstitutionnel") = ?', [$email])->first();
 
             if (!$localUser) {
                 // On redirige vers ton interface Next.js avec un paramètre d'erreur
@@ -40,18 +42,69 @@ class AuthController extends Controller
                 'photoProfil' => $localUser->photoProfil ?? $socialUser->getAvatar(),
             ]);
 
-            // -------------------------------------------------------------
-            // GÉNÉRATION DU TOKEN POUR NEXT.JS
-            // -------------------------------------------------------------
-            // Au lieu de Auth::login(), on crée un jeton d'accès sécurisé
+            // Génération du token (nécessaire dans les deux cas de redirection)
             $token = $localUser->createToken('auth_token')->plainTextToken;
 
-            // On redirige vers ton Next.js en lui passant le token dans l'URL
-            return redirect('http://localhost:3000/dashboard?token=' . $token);
+            // ── Profil incomplet → redirection vers la page de complétion ──
+            if (!$localUser->filiere || !$localUser->annee) {
+                $userJson = urlencode(json_encode([
+                    'id'      => $localUser->id,
+                    'name'    => trim(($localUser->prenom ?? '') . ' ' . ($localUser->nom ?? '')),
+                    'email'   => $localUser->emailInstitutionnel,
+                    'avatar'  => $localUser->photoProfil,
+                    'role'    => is_array($localUser->roles) ? ($localUser->roles[0] ?? 'etudiant') : ($localUser->roles ?? 'etudiant'),
+                    'filiere' => null,
+                    'annee'   => null,
+                ]));
+                return redirect('http://localhost:3000/complete-profile?token=' . $token . '&user=' . $userJson);
+            }
+
+            // ── Profil complet → inscription filière + dashboard ──────────
+            $this->autoEnrollFiliere($localUser);
+
+            $userJson = urlencode(json_encode([
+                'id'      => $localUser->id,
+                'name'    => trim(($localUser->prenom ?? '') . ' ' . ($localUser->nom ?? '')),
+                'email'   => $localUser->emailInstitutionnel,
+                'avatar'  => $localUser->photoProfil,
+                'role'    => is_array($localUser->roles) ? ($localUser->roles[0] ?? 'etudiant') : ($localUser->roles ?? 'etudiant'),
+                'filiere' => $localUser->filiere,
+                'annee'   => $localUser->annee,
+            ]));
+            return redirect('http://localhost:3000/callback?token=' . $token . '&user=' . $userJson);
 
         } catch (\Exception $e) {
             Log::error("Erreur SSO {$provider} : " . $e->getMessage());
             return redirect('http://localhost:3000/login?error=server_error');
         }
+    }
+
+    /**
+     * Enrôle automatiquement l'utilisateur dans son groupe de filière
+     * (statut Approuve, sans demande manuelle).
+     */
+    private function autoEnrollFiliere(User $user): void
+    {
+        if (!$user->filiere || !$user->annee) {
+            return;
+        }
+
+        $groupNom = $user->filiere . ' ' . $user->annee; // ex: "GL 1A"
+        $group    = Group::where('nom', $groupNom)->where('categorie', 'Filiere')->first();
+
+        if (!$group) {
+            return;
+        }
+
+        // firstOrCreate évite les doublons (contrainte unique user_id + group_id)
+        AdhesionGroup::firstOrCreate(
+            ['user_id' => $user->id, 'group_id' => $group->id],
+            [
+                'statut'     => 'Approuve',
+                'role'       => 'Membre',
+                'joinedAt'   => now(),
+                'reviewedAt' => now(),
+            ]
+        );
     }
 }

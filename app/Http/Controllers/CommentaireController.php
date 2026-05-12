@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Commentaire;
+use App\Models\Interaction;
 use App\Models\Publication;
+use App\Http\Resources\CommentResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
@@ -16,17 +18,20 @@ class CommentaireController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Commentaire::with(['user']);
-        
+        $query = Interaction::with(['user'])
+            ->where('interactions.type', 'commentaire')
+            ->join('commentaires', 'interactions.id', '=', 'commentaires.id')
+            ->select('interactions.*', 'commentaires.contenu');
+
         if ($request->has('publication_id')) {
-            $query->where('publication_id', $request->publication_id);
+            $query->where('interactions.publication_id', $request->publication_id);
         }
-        
-        $commentaires = $query->orderBy('created_at', 'asc')->paginate(20);
-        
+
+        $commentaires = $query->orderBy('interactions.created_at', 'asc')->get();
+
         return response()->json([
             'success' => true,
-            'data' => $commentaires
+            'data'    => CommentResource::collection($commentaires),
         ]);
     }
 
@@ -37,7 +42,8 @@ class CommentaireController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'contenu' => 'required|string',
+            'content'        => 'sometimes|required_without:contenu|string',
+            'contenu'        => 'sometimes|required_without:content|string',
             'publication_id' => 'required|exists:publications,id',
         ]);
 
@@ -57,23 +63,30 @@ class CommentaireController extends Controller
             ], 400);
         }
 
-        // Créer d'abord l'interaction parente
-        $interaction = \App\Models\Interaction::create([
-            'user_id' => Auth::id(),
+        // Créer l'interaction parente
+        $interaction = Interaction::create([
+            'user_id'        => Auth::id(),
             'publication_id' => $request->publication_id,
-            'type' => 'commentaire',
+            'type'           => 'commentaire',
         ]);
 
-        // Puis créer le commentaire lié
-        $commentaire = Commentaire::create([
-            'id' => $interaction->id,
-            'contenu' => $request->contenu,
+        // Créer le commentaire lié
+        Commentaire::create([
+            'id'     => $interaction->id,
+            'contenu'=> $request->input('content') ?? $request->input('contenu'),
         ]);
+
+        // Reload from join to get contenu + user
+        $result = Interaction::with(['user'])
+            ->where('interactions.id', $interaction->id)
+            ->join('commentaires', 'interactions.id', '=', 'commentaires.id')
+            ->select('interactions.*', 'commentaires.contenu')
+            ->first();
 
         return response()->json([
             'success' => true,
             'message' => 'Commentaire ajouté',
-            'data' => $commentaire->load('user')
+            'data'    => (new CommentResource($result))->toArray($request),
         ], 201);
     }
 

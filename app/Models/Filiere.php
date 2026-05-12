@@ -10,7 +10,7 @@ class Filiere extends Model
 {
     use HasUuids;
 
-    protected $fillable = ['nom'];
+    protected $fillable = ['nom', 'code'];
 
     /**
      * Relation avec les modules

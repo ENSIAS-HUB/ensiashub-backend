@@ -9,8 +9,11 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 class MenuItem extends Model
 {
     use HasFactory, HasUuids;
+
     protected $fillable = [
         'nomPlat',
+        'description',
+        'image_url',
         'categorie',
         'estDisponible',
         'prix',
@@ -20,6 +23,26 @@ class MenuItem extends Model
     {
         return [
             'estDisponible' => 'boolean',
+            'prix'          => 'float',
         ];
+    }
+
+    /** Normalized accessors for the frontend */
+    public function toApiArray(): array
+    {
+        return [
+            'id'          => $this->id,
+            'name'        => $this->nomPlat,
+            'description' => $this->description,
+            'price'       => (float) $this->prix,
+            'category'    => $this->categorie,
+            'available'   => (bool) $this->estDisponible,
+            'image_url'   => $this->image_url,
+        ];
+    }
+
+    public function orderLines()
+    {
+        return $this->hasMany(OrderLine::class);
     }
 }

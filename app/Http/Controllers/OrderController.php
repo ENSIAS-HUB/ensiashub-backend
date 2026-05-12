@@ -3,67 +3,137 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use App\Models\Order;
-
-
+use App\Models\OrderLine;
+use App\Models\MenuItem;
 
 class OrderController extends Controller
 {
     /**
-     * Display a listing of the resource.
+     * GET /api/orders
+     * Returns the authenticated user's orders (most recent first).
      */
-    public function index()
+    public function index(Request $request)
     {
-        $items = Order::all();
-        return response()->json($items, 200);
+        $orders = Order::with(['lines.menuItem'])
+            ->where('user_id', $request->user()->id)
+            ->orderByDesc('created_at')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data'    => $orders->map(fn ($o) => $o->toApiArray()),
+        ]);
     }
 
     /**
-     * Store a newly created resource in storage.
+     * POST /api/orders
+     * Body: { items: [{ mealId, quantity }], notes? }
      */
     public function store(Request $request)
     {
-        $dataValide = $request->validate([
-            'numeroCommande'=>'required|string',
-            'statut'=>'required|in:EnAttente,EnPreparation,Prete,Recuperee,Annulee',
-            'tempsAttenteEstime'=>'nullable|integer',
+        $data = $request->validate([
+            'items'          => 'required|array|min:1',
+            'items.*.mealId' => 'required|uuid|exists:menu_items,id',
+            'items.*.quantity'=> 'required|integer|min:1',
+            'notes'          => 'nullable|string|max:500',
         ]);
-        $item = Order::create($dataValide);
-        return response()->json($item, 201);
 
+        $total = 0;
+        $lineData = [];
+
+        foreach ($data['items'] as $item) {
+            $meal = MenuItem::findOrFail($item['mealId']);
+            $qty  = $item['quantity'];
+            $unitPrice = $meal->prix;
+            $lineTotal = round($unitPrice * $qty, 2);
+            $total += $lineTotal;
+
+            $lineData[] = [
+                'menu_item_id' => $meal->id,
+                'quantite'     => $qty,
+                'prixUnitaire' => $unitPrice,
+                'totalLigne'   => $lineTotal,
+            ];
+        }
+
+        $order = Order::create([
+            'user_id'        => $request->user()->id,
+            'numeroCommande' => 'CMD-' . strtoupper(Str::random(8)),
+            'statut'         => 'EnAttente',
+            'total'          => round($total, 2),
+            'notes'          => $data['notes'] ?? null,
+        ]);
+
+        foreach ($lineData as $line) {
+            $order->lines()->create($line);
+        }
+
+        $order->load('lines.menuItem');
+
+        return response()->json([
+            'success' => true,
+            'data'    => $order->toApiArray(),
+        ], 201);
     }
 
     /**
-     * Display the specified resource.
+     * GET /api/orders/{id}
      */
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
-        $item = Order::findOrFail($id);
-        return response()->json($item, 200);
+        $order = Order::with(['lines.menuItem'])
+            ->where('user_id', $request->user()->id)
+            ->findOrFail($id);
+
+        return response()->json(['success' => true, 'data' => $order->toApiArray()]);
     }
 
     /**
-     * Update the specified resource in storage.
+     * PATCH /api/orders/{id}/cancel
+     * Cancels an order that is still 'EnAttente'.
+     */
+    public function cancel(Request $request, string $id)
+    {
+        $order = Order::where('user_id', $request->user()->id)->findOrFail($id);
+
+        if ($order->statut !== 'EnAttente') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Impossible d\'annuler une commande déjà en cours.',
+            ], 422);
+        }
+
+        $order->update(['statut' => 'Annulee']);
+        $order->load('lines.menuItem');
+
+        return response()->json(['success' => true, 'data' => $order->toApiArray()]);
+    }
+
+    /**
+     * PUT /api/orders/{id}  — Admin: update status
      */
     public function update(Request $request, string $id)
     {
-        $item = Order::findOrFail($id);
-        $donneesValides = $request->validate([
-            'numeroCommande'=>'unique:orders,numeroCommande|required|string',
-            'statut'=>'sometimes|required|in:EnAttente,EnPreparation,Prete,Recuperee,Annulee',
-            'tempsAttenteEstime'=>'sometimes|nullable|integer',
+        $order = Order::findOrFail($id);
+
+        $data = $request->validate([
+            'statut' => 'required|in:EnAttente,EnPreparation,Prete,Recuperee,Annulee',
         ]);
-        $item->update($donneesValides);
-        return response()->json($item, 200);
+
+        $order->update($data);
+        $order->load('lines.menuItem');
+
+        return response()->json(['success' => true, 'data' => $order->toApiArray()]);
     }
 
     /**
-     * Remove the specified resource from storage.
+     * DELETE /api/orders/{id}  — Admin: delete
      */
     public function destroy(string $id)
     {
-        $item = Order::findOrFail($id);
-        $item->delete();
-        return response()->json(null, 204);
+        Order::findOrFail($id)->delete();
+        return response()->json(['success' => true, 'message' => 'Commande supprimée.']);
     }
 }

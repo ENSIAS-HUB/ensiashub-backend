@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Publication;
 use App\Models\Group;
+use App\Http\Resources\PublicationResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
@@ -16,22 +17,28 @@ class PublicationController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Publication::with(['user', 'groupe']);
-        
-        if ($request->has('groupe_id')) {
-            $query->where('groupe_id', $request->groupe_id);
-        }
-        
-        if ($request->has('statut')) {
-            $query->where('statutValidation', $request->statut);
-        }
-        
-        $publications = $query->orderBy('created_at', 'desc')->paginate(20);
-        
-        return response()->json([
-            'success' => true,
-            'data' => $publications
-        ]);
+        $groupId = $request->input('group_id') ?? $request->input('groupe_id');
+
+        $paginator = Publication::with(['user', 'groupe'])
+            ->withCount([
+                'reactions',
+                'commentaires as comments_count',
+            ])
+            ->when(
+                auth()->check(),
+                fn ($q) => $q->withExists([
+                    'reactions as user_reacted' => fn ($q) => $q->where('user_id', auth()->id()),
+                ])
+            )
+            ->when($groupId, fn ($q) => $q->where('groupe_id', $groupId))
+            ->when($request->has('statut'), fn ($q) => $q->where('statutValidation', $request->statut))
+            ->orderBy('created_at', 'desc')
+            ->paginate(20);
+
+        // Return raw paginator shape (current_page, last_page, data) that the frontend expects
+        return response()->json(
+            $paginator->through(fn ($pub) => (new PublicationResource($pub))->toArray($request))
+        );
     }
 
     /**
@@ -41,8 +48,11 @@ class PublicationController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'contenu' => 'required|string',
+            'content'   => 'sometimes|required_without:contenu|string',
+            'contenu'   => 'sometimes|required_without:content|string',
+            'media_url' => 'nullable|string',
             'typeMedia' => 'nullable|string',
+            'group_id'  => 'nullable|exists:groups,id',
             'groupe_id' => 'nullable|exists:groups,id',
         ]);
 
@@ -54,17 +64,19 @@ class PublicationController extends Controller
         }
 
         $publication = Publication::create([
-            'contenu' => $request->contenu,
-            'typeMedia' => $request->typeMedia,
-            'user_id' => Auth::id(),
-            'groupe_id' => $request->groupe_id,
+            'contenu'          => $request->input('content') ?? $request->input('contenu'),
+            'typeMedia'        => $request->input('media_url') ?? $request->input('typeMedia'),
+            'user_id'          => Auth::id(),
+            'groupe_id'        => $request->input('group_id') ?? $request->input('groupe_id'),
             'statutValidation' => 'EnAttente',
         ]);
+
+        $publication->load(['user', 'groupe']);
 
         return response()->json([
             'success' => true,
             'message' => 'Publication créée avec succès',
-            'data' => $publication
+            'data'    => (new PublicationResource($publication))->toArray($request),
         ], 201);
     }
 
