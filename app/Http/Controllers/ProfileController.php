@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\AutoGroupAssignmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 
@@ -198,7 +199,45 @@ class ProfileController extends Controller
 
         return response()->json(['message' => 'Bannière supprimée', 'cover_url' => null]);
     }
+    // ── DELETE /api/me — Droit à l’oubli (CNDP) ───────────────────────
+    /**
+     * Anonymise les données nominatives de l’utilisateur sans supprimer
+     * l’enregistrement (préserve l’intégrité référentielle).
+     * Conforme aux exigences CNDP / RGPD sur le droit à l’oubli.
+     */
+    public function deleteAccount(Request $request): JsonResponse
+    {
+        $user = $request->user();
 
+        DB::transaction(function () use ($user): void {
+            // Remplacement des données nominatives par des valeurs neutres
+            $user->update([
+                'nom'                 => 'Utilisateur',
+                'prenom'              => 'Supprimé',
+                // Email unique pour éviter les conflits de contrainte UNIQUE
+                'emailInstitutionnel' => 'deleted_' . $user->id . '@anonymized.local',
+                'photoProfil'         => null,
+                'avatar_url'          => null,
+                'cover_url'           => null,
+                'bio'                 => null,
+                'phone'               => null,
+                'linkedin_url'        => null,
+                'github_url'          => null,
+                'website_url'         => null,
+                'ville'               => null,
+                'profileActif'        => false,
+            ]);
+
+            // Révocation de tous les tokens Sanctum de l’utilisateur
+            $user->tokens()->delete();
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Votre compte a été anonymisé avec succès. '
+                       . 'Vos publications restent disponibles de manière anonyme.',
+        ], 200);
+    }
     // ── PATCH /me/complete-profile ────────────────────────────────────
     public function completeProfile(Request $request): JsonResponse
     {
