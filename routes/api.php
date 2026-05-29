@@ -49,7 +49,8 @@ use App\Http\Controllers\Api\NotificationController;
 */
 Route::get('/auth/redirect/{provider}', [AuthController::class, 'redirect']);
 Route::get('/auth/callback/{provider}', [AuthController::class, 'callback']);
-Route::post('/auth/login', [AuthController::class, 'login']);
+// Limite anti brute-force : 5 tentatives de connexion par minute par IP
+Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:auth-login');
 
 /*
 |--------------------------------------------------------------------------
@@ -72,6 +73,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::patch('/me/complete-profile', [ProfileController::class, 'completeProfile']);
     Route::patch('/me', [ProfileController::class, 'update']);
+    // Droit à l’oubli (CNDP) : anonymise le compte sans suppression physique
+    Route::delete('/me', [ProfileController::class, 'deleteAccount']);
 
     // ── Profil étendu ───────────────────────────────────────────────
     Route::get('/profile',               [ProfileController::class, 'me']);
@@ -197,7 +200,8 @@ Route::middleware('auth:sanctum')->group(function () {
         // ── Commun ──────────────────────────────────────────────────────────
         Route::get   ('/modules/{module}/elements',       [DriveController::class, 'elementsOfModule']);
         Route::get   ('/documents',                       [DriveController::class, 'documents']);
-        Route::post  ('/documents',                       [DriveController::class, 'upload'])->middleware('ensure.role:superAdmin,scolarite,chef_scolarite');
+        // Limite uploads : 10 par heure par utilisateur authentifié
+        Route::post  ('/documents',                       [DriveController::class, 'upload'])->middleware(['ensure.role:superAdmin,scolarite,chef_scolarite', 'throttle:drive-upload']);
         Route::get   ('/documents/{document}/download',   [DriveController::class, 'download']);
         Route::get   ('/documents/{document}/view',       [DriveController::class, 'view']);
         Route::delete('/documents/{document}',            [DriveController::class, 'deleteDocument'])->middleware('ensure.role:superAdmin,scolarite,chef_scolarite');
