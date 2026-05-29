@@ -16,10 +16,17 @@ class Group extends Model
 
     protected $fillable = [
         'nom',
+        'slug',
         'categorie',
         'description',
         'createur_id',
+        'filiere_key',
+        'annee_filiere',
         'creeLe',
+        'avatar_url',
+        'cover_url',
+        'instagram_handle',
+        'instagram_url',
     ];
 
     protected $casts = [
@@ -35,7 +42,7 @@ class Group extends Model
     public function membres(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'adhesion_groups')
-                    ->withPivot('statut', 'role', 'joinedAt', 'reviewedAt', 'motifDecision')
+                    ->withPivot('statut', 'role', 'joinedAt', 'reviewedAt', 'motifDecision', 'auto_assigned')
                     ->withTimestamps();
     }
 

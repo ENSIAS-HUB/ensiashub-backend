@@ -15,6 +15,7 @@ class OrderLine extends Model
         'totalLigne',
         'order_id',
         'menu_item_id',
+        'special_instructions',
     ];
 
     protected function casts(): array

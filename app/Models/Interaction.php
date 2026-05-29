@@ -15,6 +15,8 @@ class Interaction extends Model
     protected $fillable = [
         'user_id',
         'publication_id',
+        'reactable_type',
+        'reactable_id',
         'type',
     ];
 

@@ -3,10 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\Reaction;
+use App\Models\Interaction;
 use App\Models\Publication;
+use App\Services\NotificationService;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Database\Eloquent\Relations\Relation;
 
 class ReactionController extends Controller
 {
@@ -42,59 +46,41 @@ class ReactionController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'publication_id' => 'required|exists:publications,id',
-            'reaction' => 'required|string|in:like,love,laugh,sad,angry',
+            'reaction'       => 'nullable|string|in:like,love,laugh,sad,angry',
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'errors' => $validator->errors()
-            ], 422);
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
         }
 
-        // Vérifier que la publication est validée
-        $publication = Publication::find($request->publication_id);
-        if ($publication->statutValidation !== 'Valide') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Impossible de réagir à une publication non validée'
-            ], 400);
+        $reactionType = $request->input('reaction', 'like');
+
+        // Check for existing reaction via interactions table
+        $existingInteraction = Interaction::where('user_id', Auth::id())
+            ->where('publication_id', $request->publication_id)
+            ->where('type', 'reaction')
+            ->first();
+
+        if ($existingInteraction) {
+            // Toggle off — delete (cascades to reactions table)
+            $existingInteraction->delete();
+            return response()->json(['success' => true, 'message' => 'Réaction supprimée', 'reacted' => false]);
         }
 
-        // Vérifier si l'utilisateur a déjà réagi
-        $existingReaction = Reaction::where('user_id', Auth::id())
-                                    ->where('publication_id', $request->publication_id)
-                                    ->first();
-        
-        if ($existingReaction) {
-            // Mettre à jour la réaction existante
-            $existingReaction->update(['reaction' => $request->reaction]);
-            
-            return response()->json([
-                'success' => true,
-                'message' => 'Réaction mise à jour',
-                'data' => $existingReaction
-            ]);
-        }
-
-        // Créer d'abord l'interaction parente
-        $interaction = \App\Models\Interaction::create([
-            'user_id' => Auth::id(),
+        // Create parent interaction
+        $interaction = Interaction::create([
+            'user_id'        => Auth::id(),
             'publication_id' => $request->publication_id,
-            'type' => 'reaction',
+            'type'           => 'reaction',
         ]);
 
-        // Puis créer la réaction liée
-        $reaction = Reaction::create([
-            'id' => $interaction->id,
-            'reaction' => $request->reaction,
+        // Create child reaction
+        Reaction::create([
+            'id'       => $interaction->id,
+            'reaction' => $reactionType,
         ]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Réaction ajoutée',
-            'data' => $reaction->load('user')
-        ], 201);
+        return response()->json(['success' => true, 'message' => 'Réaction ajoutée', 'reacted' => true], 201);
     }
 
     /**
@@ -177,6 +163,84 @@ class ReactionController extends Controller
         return response()->json([
             'success' => true,
             'data' => $stats
+        ]);
+    }
+
+    /**
+     * POST /api/{type}/{id}/react — polymorphic reaction toggle
+     */
+    public function react(Request $request, string $type, string $id): JsonResponse
+    {
+        $map   = Relation::morphMap();
+        $class = $map[$type] ?? null;
+
+        if (!$class) {
+            return response()->json(['success' => false, 'message' => 'Type non supporté'], 404);
+        }
+
+        $class::findOrFail($id);
+
+        $validator = Validator::make($request->all(), [
+            'reaction' => 'nullable|string|in:like,love,laugh,sad,angry',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $reactionType = $request->input('reaction', 'like');
+
+        $existingInteraction = Interaction::where('user_id', Auth::id())
+            ->where('reactable_type', $class)
+            ->where('reactable_id', $id)
+            ->where('type', 'reaction')
+            ->first();
+
+        if ($existingInteraction) {
+            $existingInteraction->delete();
+            $reacted = false;
+        } else {
+            $interaction = Interaction::create([
+                'user_id'        => Auth::id(),
+                'publication_id' => $type === 'publications' ? $id : null,
+                'reactable_type' => $class,
+                'reactable_id'   => $id,
+                'type'           => 'reaction',
+            ]);
+
+            Reaction::create([
+                'id'       => $interaction->id,
+                'reaction' => $reactionType,
+            ]);
+
+            $reacted = true;
+
+            // Notify the content author
+            $model = $class::find($id);
+            if ($model && isset($model->user_id) && $model->user_id !== Auth::id()) {
+                $author = \App\Models\User::find($model->user_id);
+                if ($author) {
+                    $notifService = app(NotificationService::class);
+                    $title = $model->titre ?? $model->content ?? '';
+                    $notifService->notifyReaction(
+                        $author,
+                        $reactionType,
+                        mb_strimwidth($title, 0, 80, '…'),
+                    );
+                }
+            }
+        }
+
+        $count = Interaction::where('reactable_type', $class)
+            ->where('reactable_id', $id)
+            ->where('type', 'reaction')
+            ->count();
+
+        return response()->json([
+            'success'         => true,
+            'reacted'         => $reacted,
+            'reactions_count' => $count,
+            'user_emoji'      => $reacted ? $reactionType : null,
         ]);
     }
 }

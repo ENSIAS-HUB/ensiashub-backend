@@ -1,0 +1,11 @@
+# Caddyfile — FrankenPHP pour Laravel
+# SERVER_NAME est injecté par docker-entrypoint.sh depuis $PORT (Render)
+{$SERVER_NAME:localhost}
+
+root * /app/public
+
+# Activer FrankenPHP (PHP + Caddy intégré)
+php_server
+
+# Compression des réponses
+encode zstd br gzip
