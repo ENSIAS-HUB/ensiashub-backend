@@ -2,16 +2,20 @@
 
 namespace App\Models;
 
+use App\Traits\HasSocialFeatures;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
 
 class Document extends Model
 {
-    use HasUuids;
+    use HasUuids, HasSocialFeatures, SoftDeletes;
 
     protected $fillable = [
+        // Legacy fields (Google Drive sync)
         'titre',
         'nom',
         'format',
@@ -27,21 +31,39 @@ class Document extends Model
         'preview_url',
         'download_url',
         'taille',
+        // Azure Drive fields
+        'azure_path',
+        'azure_url',
+        'extension',
+        'filiere_id',
+        'views_count',
+        'semester',
+        'year',
+        // New hierarchy
+        'element_module_id',
     ];
+
+    protected $appends = ['size_formatted'];
 
     protected $casts = [
         'statutValidation' => 'string',
-        'typeDocument' => 'string',
-        'publishedAt' => 'datetime',
-        'downloads_count' => 'integer',
+        'typeDocument'     => 'string',
+        'publishedAt'      => 'datetime',
+        'downloads_count'  => 'integer',
+        'views_count'      => 'integer',
+        'taille'           => 'integer',
+        'year'             => 'integer',
     ];
 
     protected $attributes = [
         'downloads_count' => 0,
+        'views_count'     => 0,
     ];
 
+    // ── Relations ────────────────────────────────────────────────────────────
+
     /**
-     * Relation avec l'uploader
+     * Relation avec l'uploader (alias 'user' conservé pour compat.)
      */
     public function user(): BelongsTo
     {
@@ -49,11 +71,35 @@ class Document extends Model
     }
 
     /**
-     * Relation avec le module
+     * Alias 'uploader' pour les nouvelles routes Drive
+     */
+    public function uploader(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'uploader_id');
+    }
+
+    /**
+     * Relation avec le module pédagogique (legacy)
      */
     public function module(): BelongsTo
     {
         return $this->belongsTo(Module::class, 'module_pedagogique_id');
+    }
+
+    /**
+     * Relation avec l'élément de module (nouvelle hiérarchie Drive)
+     */
+    public function elementModule(): BelongsTo
+    {
+        return $this->belongsTo(ElementModule::class, 'element_module_id');
+    }
+
+    /**
+     * Relation directe avec la filière (Drive)
+     */
+    public function filiere(): BelongsTo
+    {
+        return $this->belongsTo(Filiere::class, 'filiere_id');
     }
 
     /**
@@ -64,53 +110,67 @@ class Document extends Model
         return $this->hasOne(DocumentReview::class, 'document_id');
     }
 
-    /**
-     * Vérifier si le document est validé
-     */
+    // ── Accessors ────────────────────────────────────────────────────────────
+
+    public function getSizeFormattedAttribute(): string
+    {
+        $bytes = (int) ($this->taille ?? 0);
+        if ($bytes < 1024)       return "{$bytes} B";
+        if ($bytes < 1_048_576)  return round($bytes / 1024, 1).' KB';
+        if ($bytes < 1_073_741_824) return round($bytes / 1_048_576, 1).' MB';
+        return round($bytes / 1_073_741_824, 2).' GB';
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
     public function estValide(): bool
     {
         return $this->statutValidation === 'Valide';
     }
 
     /**
+     * URL de téléchargement — retourne l'URL Azure publique.
+     * Si le conteneur est privé, décommentez la ligne temporaryUrl().
+     */
+    public function getDownloadUrl(int $minutesTtl = 30): string
+    {
+        if ($this->azure_url) {
+            return $this->azure_url;
+        }
+
+        // Fallback sur le champ GDrive legacy
+        return $this->download_url ?? $this->preview_url ?? $this->urlStockage ?? '';
+
+        // Pour conteneur privé (SAS token) :
+        // return Storage::disk('azure')->temporaryUrl($this->azure_path, now()->addMinutes($minutesTtl));
+    }
+
+    // ── Events ───────────────────────────────────────────────────────────────
+
+    /**
+     * Supprimer le blob Azure lors d'une suppression définitive.
+     */
+    protected static function booted(): void
+    {
+        // Suppression Azure gérée uniquement par les Jobs queue (DeleteBlobsFromAzure).
+        // Ne pas supprimer ici → évite double suppression + requête bloquante.
+    }
+
+    // ── Static Helpers ───────────────────────────────────────────────────────
+
+    /**
      * Clean a raw Google Drive file name into a readable title.
-     *
-     * Steps:
-     *  1. Remove common file extensions (.pdf, .docx, …)
-     *  2. Remove GDrive copy suffixes: (1) (2) [1] [2] …
-     *  3. Replace underscores with spaces
-     *  4. Replace hyphens surrounded by alphanumerics with spaces
-     *  5. Collapse multiple spaces and trim
-     *  6. Capitalise first letter of each word
      */
     public static function cleanTitle(string $raw): string
     {
-        // 1. Remove file extension
         $title = preg_replace('/\.[a-zA-Z]{2,5}$/', '', $raw);
-
-        // 2. Remove Google Drive copy suffixes like (1), [1], (2), [2], …
         $title = preg_replace('/[\(\[]\d+[\)\]]/', '', $title ?? '');
-
-        // 3. Replace underscores with spaces
         $title = str_replace('_', ' ', $title);
-
-        // 4. Replace forward slashes with spaces
         $title = str_replace('/', ' ', $title);
-
-        // 5. Replace " - " (spaced hyphen) with a single space
         $title = preg_replace('/\s+-\s+/', ' ', $title);
-
-        // 6. Replace hyphens that sit between alphanumeric chars with spaces
-        //    (e.g. "POO-25" → "POO 25")
         $title = preg_replace('/(?<=[a-zA-Z0-9])-(?=[a-zA-Z0-9])/', ' ', $title);
-
-        // 7. Remove any remaining trailing/leading punctuation (dots, commas…)
         $title = trim($title, " \t\n\r\0\x0B.,;:");
-
-        // 8. Collapse multiple whitespace characters and trim
         $title = trim(preg_replace('/\s+/', ' ', $title));
-
-        // 9. Capitalise first letter of each word (after lowercasing everything)
         return ucwords(strtolower($title));
     }
 }

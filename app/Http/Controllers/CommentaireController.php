@@ -70,11 +70,12 @@ class CommentaireController extends Controller
             'type'           => 'commentaire',
         ]);
 
-        // Créer le commentaire lié
-        Commentaire::create([
-            'id'     => $interaction->id,
-            'contenu'=> $request->input('content') ?? $request->input('contenu'),
-        ]);
+        // Créer le commentaire lié — id doit matcher l'interaction (FK constraint)
+        // On ne peut pas passer id via create() car il n'est pas $fillable et HasUuids
+        // génèrerait un nouveau UUID. On l'assigne explicitement avant save().
+        $commentaire = new Commentaire(['contenu' => $request->input('content') ?? $request->input('contenu')]);
+        $commentaire->id = $interaction->id;
+        $commentaire->save();
 
         // Reload from join to get contenu + user
         $result = Interaction::with(['user'])

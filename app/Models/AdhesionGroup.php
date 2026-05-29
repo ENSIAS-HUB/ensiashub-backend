@@ -19,7 +19,9 @@ class AdhesionGroup extends Model
         'role',
         'joinedAt',
         'reviewedAt',
+        'reviewed_by',
         'motifDecision',
+        'auto_assigned',
     ];
 
     protected $casts = [
@@ -43,6 +45,14 @@ class AdhesionGroup extends Model
     public function group(): BelongsTo
     {
         return $this->belongsTo(Group::class);
+    }
+
+    /**
+     * Qui a examiné cette demande
+     */
+    public function reviewedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reviewed_by');
     }
 
     /**

@@ -26,6 +26,8 @@ class DatabaseSeeder extends Seeder
             DocumentSeeder::class,
             DocumentReviewSeeder::class,
             MenuItemSeeder::class,
+            ClubAccountsSeeder::class,
+            ClubRealPostsSeeder::class,
         ]);
     }
 }

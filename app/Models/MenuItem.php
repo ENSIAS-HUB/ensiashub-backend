@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Traits\HasSocialFeatures;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 
 class MenuItem extends Model
 {
-    use HasFactory, HasUuids;
+    use HasFactory, HasUuids, HasSocialFeatures;
 
     protected $fillable = [
         'nomPlat',
@@ -17,6 +18,7 @@ class MenuItem extends Model
         'categorie',
         'estDisponible',
         'prix',
+        'preparation_time_minutes',
     ];
 
     protected function casts(): array

@@ -60,6 +60,15 @@ return [
             'report' => false,
         ],
 
+        'azure' => [
+            'driver'    => 'azure',
+            'account'   => env('AZURE_STORAGE_NAME'),
+            'key'       => env('AZURE_STORAGE_KEY'),
+            'container' => env('AZURE_STORAGE_CONTAINER'),
+            'url'       => env('AZURE_STORAGE_URL'),
+            'prefix'    => null,
+        ],
+
     ],
 
     /*

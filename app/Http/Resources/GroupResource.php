@@ -46,13 +46,22 @@ class GroupResource extends JsonResource
         return [
             'id'                => $this->id,
             'name'              => $this->nom,
+            'slug'              => $this->slug,
             'description'       => $this->description,
             'category'          => strtolower($this->categorie),
-            'cover_image'       => null,
+            'filiere_key'       => $this->filiere_key,
+            'annee_filiere'     => $this->annee_filiere,
+            'avatar_url'        => $this->avatar_url,
+            'cover_url'         => $this->cover_url,
+            'cover_image'       => $this->cover_url,   // backward-compat alias
+            'instagram_handle'  => $this->instagram_handle,
+            'instagram_url'     => $this->instagram_url,
             'members_count'     => (int) ($this->membres_count ?? 0),
             'moderator'         => $moderator,
             'membership_status' => $membershipStatus,
             'is_member'         => $isMember,
+            'auto_assigned'     => (bool) ($this->whenLoaded('membres')
+                                    && $this->membres->firstWhere('id', Auth::id())?->pivot?->auto_assigned ?? false),
             'created_at'        => $this->created_at,
         ];
     }

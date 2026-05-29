@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\HasSocialFeatures;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Publication extends Model
 {
-    use HasUuids;
+    use HasUuids, HasSocialFeatures;
 
     protected $table = 'publications';
 
@@ -18,13 +19,18 @@ class Publication extends Model
         'contenu',
         'typeMedia',
         'statutValidation',
+        'visibility',
         'user_id',
         'groupe_id',
         'publishedAt',
+        'source',
+        'instagram_url',
+        'imported_at',
     ];
 
     protected $casts = [
         'statutValidation' => 'string',
+        'visibility'       => 'string',
         'publishedAt' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
@@ -76,6 +82,14 @@ class Publication extends Model
     public function reactions(): HasMany
     {
         return $this->hasMany(Interaction::class, 'publication_id')->where('type', 'reaction');
+    }
+
+    /**
+     * Relation avec les médias attachés (images / vidéos)
+     */
+    public function postMedia(): HasMany
+    {
+        return $this->hasMany(PostMedia::class, 'publication_id')->orderBy('order');
     }
 
     /**

@@ -31,12 +31,13 @@ class Order extends Model
     public static function statutToStatus(string $statut): string
     {
         return match ($statut) {
-            'EnAttente'     => 'en_attente',
-            'EnPreparation' => 'en_preparation',
-            'Prete'         => 'pret',
-            'Recuperee'     => 'livre',
-            'Annulee'       => 'annule',
-            default         => 'en_attente',
+            'EnAttente'     => 'pending',
+            'Confirme'      => 'confirmed',
+            'EnPreparation' => 'preparing',
+            'Prete'         => 'ready',
+            'Recuperee'     => 'completed',
+            'Annulee'       => 'cancelled',
+            default         => 'pending',
         };
     }
 
@@ -44,6 +45,13 @@ class Order extends Model
     public static function statusToStatut(string $status): string
     {
         return match ($status) {
+            'pending'    => 'EnAttente',
+            'confirmed'  => 'Confirme',
+            'preparing'  => 'EnPreparation',
+            'ready'      => 'Prete',
+            'completed'  => 'Recuperee',
+            'cancelled'  => 'Annulee',
+            // Legacy aliases (eats frontend compatibility)
             'en_attente'     => 'EnAttente',
             'en_preparation' => 'EnPreparation',
             'pret'           => 'Prete',
@@ -51,6 +59,25 @@ class Order extends Model
             'annule'         => 'Annulee',
             default          => 'EnAttente',
         };
+    }
+
+    /** Allowed status transitions */
+    public static function allowedTransitions(): array
+    {
+        return [
+            'pending'   => ['confirmed', 'cancelled'],
+            'confirmed' => ['preparing', 'cancelled'],
+            'preparing' => ['ready', 'cancelled'],
+            'ready'     => ['completed'],
+            'completed' => [],
+            'cancelled' => [],
+        ];
+    }
+
+    public function canTransitionTo(string $newStatus): bool
+    {
+        $current = self::statutToStatus($this->statut);
+        return in_array($newStatus, self::allowedTransitions()[$current] ?? [], true);
     }
 
     public function user()
@@ -79,4 +106,30 @@ class Order extends Model
             ])->values()->all(),
         ];
     }
+
+    public function toKitchenArray(): array
+    {
+        $user = $this->user;
+        return [
+            'id'          => $this->id,
+            'status'      => self::statutToStatus($this->statut),
+            'total_price' => (float) $this->total,
+            'notes'       => $this->notes,
+            'created_at'  => $this->created_at?->toISOString(),
+            'customer'    => $user ? [
+                'id'      => $user->id,
+                'name'    => trim(($user->prenom ?? '') . ' ' . ($user->nom ?? '')),
+                'filiere' => $user->filiere,
+                'annee'   => $user->annee,
+            ] : null,
+            'items' => $this->lines->map(fn ($l) => [
+                'id'                   => $l->id,
+                'name'                 => $l->menuItem?->nomPlat ?? 'Plat supprimé',
+                'quantity'             => $l->quantite,
+                'unit_price'           => (float) $l->prixUnitaire,
+                'special_instructions' => $l->special_instructions ?? null,
+            ])->values()->all(),
+        ];
+    }
 }
+

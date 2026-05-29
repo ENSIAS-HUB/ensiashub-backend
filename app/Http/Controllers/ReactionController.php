@@ -5,9 +5,12 @@ namespace App\Http\Controllers;
 use App\Models\Reaction;
 use App\Models\Interaction;
 use App\Models\Publication;
+use App\Services\NotificationService;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Database\Eloquent\Relations\Relation;
 
 class ReactionController extends Controller
 {
@@ -160,6 +163,84 @@ class ReactionController extends Controller
         return response()->json([
             'success' => true,
             'data' => $stats
+        ]);
+    }
+
+    /**
+     * POST /api/{type}/{id}/react — polymorphic reaction toggle
+     */
+    public function react(Request $request, string $type, string $id): JsonResponse
+    {
+        $map   = Relation::morphMap();
+        $class = $map[$type] ?? null;
+
+        if (!$class) {
+            return response()->json(['success' => false, 'message' => 'Type non supporté'], 404);
+        }
+
+        $class::findOrFail($id);
+
+        $validator = Validator::make($request->all(), [
+            'reaction' => 'nullable|string|in:like,love,laugh,sad,angry',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $reactionType = $request->input('reaction', 'like');
+
+        $existingInteraction = Interaction::where('user_id', Auth::id())
+            ->where('reactable_type', $class)
+            ->where('reactable_id', $id)
+            ->where('type', 'reaction')
+            ->first();
+
+        if ($existingInteraction) {
+            $existingInteraction->delete();
+            $reacted = false;
+        } else {
+            $interaction = Interaction::create([
+                'user_id'        => Auth::id(),
+                'publication_id' => $type === 'publications' ? $id : null,
+                'reactable_type' => $class,
+                'reactable_id'   => $id,
+                'type'           => 'reaction',
+            ]);
+
+            Reaction::create([
+                'id'       => $interaction->id,
+                'reaction' => $reactionType,
+            ]);
+
+            $reacted = true;
+
+            // Notify the content author
+            $model = $class::find($id);
+            if ($model && isset($model->user_id) && $model->user_id !== Auth::id()) {
+                $author = \App\Models\User::find($model->user_id);
+                if ($author) {
+                    $notifService = app(NotificationService::class);
+                    $title = $model->titre ?? $model->content ?? '';
+                    $notifService->notifyReaction(
+                        $author,
+                        $reactionType,
+                        mb_strimwidth($title, 0, 80, '…'),
+                    );
+                }
+            }
+        }
+
+        $count = Interaction::where('reactable_type', $class)
+            ->where('reactable_id', $id)
+            ->where('type', 'reaction')
+            ->count();
+
+        return response()->json([
+            'success'         => true,
+            'reacted'         => $reacted,
+            'reactions_count' => $count,
+            'user_emoji'      => $reacted ? $reactionType : null,
         ]);
     }
 }

@@ -2,10 +2,11 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\AdhesionGroup;
-use App\Models\Group;
 use App\Models\User;
+use App\Services\AutoGroupAssignmentService;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 use Laravel\Socialite\Facades\Socialite;
 use Illuminate\Support\Facades\Log;
 
@@ -14,97 +15,86 @@ class AuthController extends Controller
     public function redirect($provider)
     {
         if (!in_array($provider, ['google', 'microsoft'])) {
-            return response()->json(['error' => 'Fournisseur non supporté.'], 400);
+            return response()->json(['error' => 'Fournisseur non supporté.'], 422);
         }
 
-        // stateless() est OBLIGATOIRE pour une API React/Next.js
         return Socialite::driver($provider)->stateless()->redirect();
+    }
+
+    public function login(Request $request)
+    {
+        $request->validate([
+            'email'    => 'required|email',
+            'password' => 'required|string',
+        ]);
+
+        $email = strtolower(trim($request->email));
+        $user  = User::whereRaw('LOWER("emailInstitutionnel") = ?', [$email])->first();
+
+        if (!$user || !$user->password || !Hash::check($request->password, $user->password)) {
+            return response()->json(['message' => 'Identifiants invalides.'], 401);
+        }
+
+        $token = $user->createToken('auth_token')->plainTextToken;
+
+        return response()->json([
+            'token' => $token,
+            'user'  => [
+                'id'      => $user->id,
+                'name'    => trim(($user->prenom ?? '') . ' ' . ($user->nom ?? '')),
+                'email'   => $user->emailInstitutionnel,
+                'avatar'  => $user->photoProfil,
+                'role'    => is_array($user->roles) ? ($user->roles[0] ?? 'etudiant') : ($user->roles ?? 'etudiant'),
+                'filiere' => $user->filiere,
+                'annee'   => $user->annee,
+            ],
+        ]);
     }
 
     public function callback($provider)
     {
         try {
-            // stateless() ici aussi
             $socialUser = Socialite::driver($provider)->stateless()->user();
+
+            if (!$socialUser || !$socialUser->getEmail() || !$socialUser->getId()) {
+                Log::warning("Socialite returned incomplete user from {$provider}");
+                return redirect(env('FRONTEND_URL', 'http://localhost:3000') . '/login?error=oauth_failed');
+            }
+
             $email = strtolower(trim($socialUser->getEmail()));
 
-            // LA LISTE BLANCHE (comparaison insensible à la casse)
+            // Microsoft = comptes universitaires uniquement (@um5.ac.ma).
+            // Google   = ouvert (comptes personnels @gmail.com, etc.).
+            if ($provider === 'microsoft' && !str_ends_with($email, '@um5.ac.ma')) {
+                return redirect(env('FRONTEND_URL', 'http://localhost:3000') . '/login?error=invalid_domain');
+            }
+
             $localUser = User::whereRaw('LOWER("emailInstitutionnel") = ?', [$email])->first();
 
             if (!$localUser) {
-                // On redirige vers ton interface Next.js avec un paramètre d'erreur
-                return redirect('http://localhost:3000/login?error=access_denied');
+                return redirect(env('FRONTEND_URL', 'http://localhost:3000') . '/login?error=access_denied');
             }
 
             $localUser->update([
-                'provider' => $provider,
+                'provider'    => $provider,
                 'provider_id' => $socialUser->getId(),
                 'photoProfil' => $localUser->photoProfil ?? $socialUser->getAvatar(),
             ]);
 
-            // Génération du token (nécessaire dans les deux cas de redirection)
             $token = $localUser->createToken('auth_token')->plainTextToken;
 
-            // ── Profil incomplet → redirection vers la page de complétion ──
             if (!$localUser->filiere || !$localUser->annee) {
-                $userJson = urlencode(json_encode([
-                    'id'      => $localUser->id,
-                    'name'    => trim(($localUser->prenom ?? '') . ' ' . ($localUser->nom ?? '')),
-                    'email'   => $localUser->emailInstitutionnel,
-                    'avatar'  => $localUser->photoProfil,
-                    'role'    => is_array($localUser->roles) ? ($localUser->roles[0] ?? 'etudiant') : ($localUser->roles ?? 'etudiant'),
-                    'filiere' => null,
-                    'annee'   => null,
-                ]));
-                return redirect('http://localhost:3000/complete-profile?token=' . $token . '&user=' . $userJson);
+                return redirect(env('FRONTEND_URL', 'http://localhost:3000') . '/complete-profile?token=' . $token);
             }
 
-            // ── Profil complet → inscription filière + dashboard ──────────
-            $this->autoEnrollFiliere($localUser);
+            // Auto-assign filière group
+            app(AutoGroupAssignmentService::class)->assignUserToFiliereGroup($localUser);
 
-            $userJson = urlencode(json_encode([
-                'id'      => $localUser->id,
-                'name'    => trim(($localUser->prenom ?? '') . ' ' . ($localUser->nom ?? '')),
-                'email'   => $localUser->emailInstitutionnel,
-                'avatar'  => $localUser->photoProfil,
-                'role'    => is_array($localUser->roles) ? ($localUser->roles[0] ?? 'etudiant') : ($localUser->roles ?? 'etudiant'),
-                'filiere' => $localUser->filiere,
-                'annee'   => $localUser->annee,
-            ]));
-            return redirect('http://localhost:3000/callback?token=' . $token . '&user=' . $userJson);
+            return redirect(env('FRONTEND_URL', 'http://localhost:3000') . '/callback?token=' . $token);
 
         } catch (\Exception $e) {
             Log::error("Erreur SSO {$provider} : " . $e->getMessage());
-            return redirect('http://localhost:3000/login?error=server_error');
+            return redirect(env('FRONTEND_URL', 'http://localhost:3000') . '/login?error=server_error');
         }
-    }
-
-    /**
-     * Enrôle automatiquement l'utilisateur dans son groupe de filière
-     * (statut Approuve, sans demande manuelle).
-     */
-    private function autoEnrollFiliere(User $user): void
-    {
-        if (!$user->filiere || !$user->annee) {
-            return;
-        }
-
-        $groupNom = $user->filiere . ' ' . $user->annee; // ex: "GL 1A"
-        $group    = Group::where('nom', $groupNom)->where('categorie', 'Filiere')->first();
-
-        if (!$group) {
-            return;
-        }
-
-        // firstOrCreate évite les doublons (contrainte unique user_id + group_id)
-        AdhesionGroup::firstOrCreate(
-            ['user_id' => $user->id, 'group_id' => $group->id],
-            [
-                'statut'     => 'Approuve',
-                'role'       => 'Membre',
-                'joinedAt'   => now(),
-                'reviewedAt' => now(),
-            ]
-        );
     }
 }
