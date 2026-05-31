@@ -3,8 +3,13 @@ set -e
 
 echo "Starting Laravel deployment..."
 
+echo "Current DB connection: ${DB_CONNECTION:-not_set}"
+echo "Current cache store: ${CACHE_STORE:-not_set}"
+
 php artisan config:clear
-php artisan cache:clear
+php artisan route:clear || true
+php artisan view:clear || true
+php artisan optimize:clear || true
 
 php artisan migrate --force
 
@@ -14,8 +19,7 @@ php artisan view:cache
 
 echo "Starting FrankenPHP on port ${PORT:-10000}..."
 
-exec php artisan octane:start \
-    --server=frankenphp \
+exec php artisan octane:frankenphp \
     --host=0.0.0.0 \
     --port="${PORT:-10000}" \
     --workers=auto \
