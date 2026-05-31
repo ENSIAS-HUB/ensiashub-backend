@@ -1,20 +1,22 @@
 #!/bin/sh
 set -e
 
-# ── Port dynamique (Render injecte $PORT à runtime) ─────────────────────────
-export SERVER_NAME=":${PORT:-8080}"
+echo "Starting Laravel deployment..."
 
-echo "╔══════════════════════════════════════════╗"
-echo "║     ENSIAS Hub Backend — Starting...     ║"
-echo "║     Server: ${SERVER_NAME}               ║"
-echo "╚══════════════════════════════════════════╝"
+php artisan config:clear
+php artisan cache:clear
 
-# ── Cache config & routes (perf) ────────────────────────────────────────────
-php artisan config:cache
-php artisan route:cache
-
-# ── Migrations (idempotent — sûr à rejouer) ──────────────────────────────────
 php artisan migrate --force
 
-# ── Démarrer FrankenPHP ───────────────────────────────────────────────────────
-exec frankenphp run --config /etc/caddy/Caddyfile --adapter caddyfile
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+
+echo "Starting FrankenPHP on port ${PORT:-10000}..."
+
+exec php artisan octane:start \
+    --server=frankenphp \
+    --host=0.0.0.0 \
+    --port="${PORT:-10000}" \
+    --workers=auto \
+    --max-requests=500
