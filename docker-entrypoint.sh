@@ -6,10 +6,10 @@ echo "Starting Laravel deployment..."
 echo "Current DB connection: ${DB_CONNECTION:-not_set}"
 echo "Current cache store: ${CACHE_STORE:-not_set}"
 
-php artisan config:clear
+php artisan config:clear || true
 php artisan route:clear || true
 php artisan view:clear || true
-php artisan optimize:clear || true
+php artisan event:clear || true
 
 php artisan migrate --force
 
