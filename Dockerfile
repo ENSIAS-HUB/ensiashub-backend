@@ -1,20 +1,11 @@
-# ── ENSIAS Hub Backend — FrankenPHP + Laravel Octane ──────────────────────────
-FROM dunglas/frankenphp:latest-php8.2-alpine
+# ── ENSIAS Hub Backend — Serveur Natif (100% Fiable pour Render) ──────────
+FROM php:8.2-cli
 
-LABEL maintainer="ENSIAS Hub PFA"
+# ── Installation des extensions PHP sans erreur ───────────────────────────
+ADD https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
 
-# ── PHP extensions requis par Laravel et PostgreSQL ───────────────────────────
-RUN install-php-extensions \
-    pdo_pgsql \
-    pgsql \
-    mbstring \
-    bcmath \
-    zip \
-    gd \
-    intl \
-    opcache \
-    pcntl \
-    exif
+RUN chmod +x /usr/local/bin/install-php-extensions && \
+    install-php-extensions pdo_pgsql pgsql mbstring bcmath zip gd intl opcache pcntl exif
 
 # ── Composer ──────────────────────────────────────────────────────────────────
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
@@ -37,6 +28,5 @@ RUN mkdir -p storage/logs \
     && chown -R www-data:www-data storage bootstrap/cache \
     && chmod -R 775 storage bootstrap/cache
 
-# ── Nettoyage des caches au démarrage et lancement de Laravel Octane ──────────
-# C'est LA ligne magique pour Render : on utilise le port dynamique fourni par Render
-CMD ["sh", "-c", "php artisan config:clear && php artisan octane:start --server=frankenphp --host=0.0.0.0 --port=${PORT:-10000}"]
+# ── Lancement infaillible avec le port dynamique de Render ────────────────────
+CMD ["sh", "-c", "php artisan config:clear && php artisan serve --host=0.0.0.0 --port=${PORT:-10000}"]
