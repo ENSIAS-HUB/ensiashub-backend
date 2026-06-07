@@ -39,4 +39,4 @@ RUN mkdir -p storage/logs \
 
 # ── Nettoyage des caches au démarrage et lancement de Laravel Octane ──────────
 # C'est LA ligne magique pour Render : on utilise le port dynamique fourni par Render
-CMD php artisan config:clear && php artisan route:clear && php artisan view:clear && php artisan octane:start --server=frankenphp --host=0.0.0.0 --port=${PORT:-10000}
+CMD ["sh", "-c", "php artisan config:clear && php artisan octane:start --server=frankenphp --host=0.0.0.0 --port=${PORT:-10000}"]
